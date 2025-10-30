@@ -68,10 +68,18 @@
     <version.powermock>2.0.9</version.powermock>
 
     <!-- for Reproducible Builds -->
-    <project.build.outputTimestamp>2025-10-30T11:34:20Z</project.build.outputTimestamp>
+    <project.build.outputTimestamp>2025-10-30T13:46:49Z</project.build.outputTimestamp>
   </properties>
 
   <dependencies>
+      <!-- miro-start BEX-1163 -->
+      <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
+          <version>2.0.13</version>
+      </dependency>
+      <!-- miro-end BEX-1163 -->
+
     <!-- Builds on core streaming API; also needs core annotations -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>

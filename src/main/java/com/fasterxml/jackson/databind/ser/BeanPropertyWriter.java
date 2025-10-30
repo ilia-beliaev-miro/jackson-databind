@@ -1,14 +1,5 @@
 package com.fasterxml.jackson.databind.ser;
 
-import java.io.IOException;
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Type;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -16,7 +7,10 @@ import com.fasterxml.jackson.core.SerializableString;
 import com.fasterxml.jackson.core.io.SerializedString;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.annotation.JacksonStdImpl;
-import com.fasterxml.jackson.databind.introspect.*;
+import com.fasterxml.jackson.databind.introspect.AnnotatedField;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMethod;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
 import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -26,6 +20,17 @@ import com.fasterxml.jackson.databind.ser.std.BeanSerializerBase;
 import com.fasterxml.jackson.databind.util.Annotations;
 import com.fasterxml.jackson.databind.util.ClassUtil;
 import com.fasterxml.jackson.databind.util.NameTransformer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Type;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Base bean property handler class, which implements common parts of
@@ -46,10 +51,21 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     private static final long serialVersionUID = 1L;
 
     // miro-start BEX-1163
+    private static final Logger LOGGER = LoggerFactory.getLogger(BeanPropertyWriter.class);
     private static final String ENVIRONMENT_NAME = System.getProperty("environment", "undefined");
     private static final boolean ERROR_ON_NO_JSON_PROPERTIES = !ENVIRONMENT_NAME.contains("production");
-
     private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
+    private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
+
+    static {
+        Class<? extends Annotation> kotlinMetadata = null;
+        try {
+            kotlinMetadata = (Class<? extends Annotation>) Class.forName("kotlin.Metadata");
+        } catch (ClassNotFoundException | ClassCastException e) {
+            // Kotlin not in classpath, ignore check
+        }
+        KOTLIN_METADATA_ANNOTATION_CLASS = kotlinMetadata;
+    }
     // miro-end BEX-1163
 
     /**
@@ -696,38 +712,28 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
         // miro-start BEX-1163
         // If a property from a Kotlin method, that is named is{Something} and has no JsonProperty annotation, or it is empty
         // - in non-production environment - throw an exception
-        // - in production environment - log an ERROR
-        if (_accessorMethod != null && _accessorMethod.getName().startsWith("is")) {
+        // - in production environment - log a WARN
+        if (_accessorMethod != null
+            && _accessorMethod.getName()
+                              .startsWith("is")) {
             JsonProperty jsonProperty = _accessorMethod.getAnnotation(JsonProperty.class);
-            if (jsonProperty == null || jsonProperty.value().isEmpty()) {
+            if (jsonProperty == null
+                || jsonProperty.value()
+                               .isEmpty()) {
                 Class<?> beanClass = bean.getClass();
-                try {
-                    Class<? extends Annotation> kotlinMetadataClass = (Class<? extends Annotation>) Class.forName("kotlin.Metadata");
-                    if (beanClass.isAnnotationPresent(kotlinMetadataClass)) {
-                        if (ERROR_ON_NO_JSON_PROPERTIES) {
-                            throw new IllegalStateException(String.format(
-                                "Cannot serialize property '%s' from Kotlin class %s using is-method '%s' without" +
-                                    " explicit @JsonProperty annotation specifying the name. With migration to" +
-                                    " jackson-kotlin-module 2.15 the resulting property name would change to %s. Add" +
-                                    " an @JsonProperty annotation to the method specifying the name explicitly.",
-                                _name.getValue(), beanClass.getName(), _accessorMethod.getName(), _accessorMethod.getName()
-                            ));
-                        } else if (WARNED_METHODS_CACHE.add(_accessorMethod.getName())) {
-                            System.out.printf("[ERROR] Serializing a property '%s' from Kotlin class %s using " +
-                                                  "is-method '%s' without explicit @JsonProperty annotation" +
-                                                  " specifying the name. With migration to jackson-kotlin-module" +
-                                                  " 2.15 the resulting property name would change to %s. Add an" +
-                                                  " @JsonProperty annotation to the method specifying the name" +
-                                                  " explicitly.\n",
-                                              _name.getValue(),
-                                              beanClass.getName(),
-                                              _accessorMethod.getName(),
-                                              _accessorMethod.getName()
-                            );
-                        }
+                if (beanClass.isAnnotationPresent(KOTLIN_METADATA_ANNOTATION_CLASS)) {
+                    IllegalStateException exception = new IllegalStateException(String.format(
+                        "Serializing a property '%s' from Kotlin class %s using is-method '%s' without" +
+                            " explicit @JsonProperty annotation specifying the name. With migration to" +
+                            " jackson-kotlin-module 2.15 the resulting property name would change to %s. Add" +
+                            " an @JsonProperty annotation to the method specifying the name explicitly.",
+                        _name.getValue(), beanClass.getName(), _accessorMethod.getName(), _accessorMethod.getName()
+                    ));
+                    if (ERROR_ON_NO_JSON_PROPERTIES) {
+                        throw exception;
+                    } else if (WARNED_METHODS_CACHE.add(_accessorMethod.getName())) {
+                        LOGGER.warn("Kotlin is-method serialization issue", exception);
                     }
-                } catch (ClassNotFoundException | ClassCastException e) {
-                    // Kotlin not in classpath, ignore check
                 }
             }
         }
