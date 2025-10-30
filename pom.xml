@@ -35,6 +35,7 @@
   </scm>
 
   <properties>
+    <skipNexusStagingDeployMojo>true</skipNexusStagingDeployMojo>
     <!-- Until Jackson 2.11 (inclusive) baseline was JDK 7 (except for annotations/streaming),
          with 2.12 baseline became JDK8
       -->
@@ -287,6 +288,24 @@
         </configuration>
       </plugin>
 
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+                <execution>
+                    <id>attach-sources</id>
+                    <goals>
+                        <goal>jar-no-fork</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+        <plugin>
+            <groupId>org.sonatype.plugins</groupId>
+            <artifactId>nexus-staging-maven-plugin</artifactId>
+            <version>1.6.8</version>
+            <extensions>false</extensions>
+        </plugin>
      </plugins>
   </build>
 
