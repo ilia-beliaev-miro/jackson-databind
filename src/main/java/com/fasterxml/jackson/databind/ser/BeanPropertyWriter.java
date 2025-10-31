@@ -29,6 +29,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -713,9 +714,13 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
         // If a property from a Kotlin method, that is named is{Something} and has no JsonProperty annotation, or it is empty
         // - in non-production environment - throw an exception
         // - in production environment - log a WARN
-        if (_accessorMethod != null
-            && _accessorMethod.getName()
-                              .startsWith("is")) {
+        if (_member != null
+            && _member.getName()
+                      .startsWith("is")
+            && _member instanceof AnnotatedMethod
+            && ((AnnotatedMethod) _member).getParameterCount() == 0
+            && !Objects.equals(_member.getName(), _name.getValue()) // this skips the FIELDS that start with `is`
+        ) {
             JsonProperty jsonProperty = _accessorMethod.getAnnotation(JsonProperty.class);
             if (jsonProperty == null
                 || jsonProperty.value()
