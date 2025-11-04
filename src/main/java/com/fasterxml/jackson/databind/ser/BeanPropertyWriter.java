@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ser.std.BeanSerializerBase;
 import com.fasterxml.jackson.databind.util.Annotations;
 import com.fasterxml.jackson.databind.util.ClassUtil;
 import com.fasterxml.jackson.databind.util.NameTransformer;
+import com.sun.tools.javac.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +55,13 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     // miro-start BEX-1163
     private static final Logger LOGGER = LoggerFactory.getLogger(BeanPropertyWriter.class);
     private static final String ENVIRONMENT_NAME = System.getProperty("environment", "undefined");
-    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = !ENVIRONMENT_NAME.contains("production");
+    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = List.of(
+                                                                       "production",
+                                                                       "staging",
+                                                                       "qa-svc"
+                                                                   )
+                                                                   .stream()
+                                                                   .noneMatch(ENVIRONMENT_NAME::contains);
     private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
     private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
 
