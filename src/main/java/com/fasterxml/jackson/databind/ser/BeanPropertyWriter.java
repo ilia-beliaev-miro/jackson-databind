@@ -20,7 +20,6 @@ import com.fasterxml.jackson.databind.ser.std.BeanSerializerBase;
 import com.fasterxml.jackson.databind.util.Annotations;
 import com.fasterxml.jackson.databind.util.ClassUtil;
 import com.fasterxml.jackson.databind.util.NameTransformer;
-import com.sun.tools.javac.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +32,7 @@ import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /**
  * Base bean property handler class, which implements common parts of
@@ -55,13 +55,12 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     // miro-start BEX-1163
     private static final Logger LOGGER = LoggerFactory.getLogger(BeanPropertyWriter.class);
     private static final String ENVIRONMENT_NAME = System.getProperty("environment", "undefined");
-    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = List.of(
+    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = Stream.of(
                                                                        "production",
                                                                        "staging",
                                                                        "qa-svc"
-                                                                   )
-                                                                   .stream()
-                                                                   .noneMatch(ENVIRONMENT_NAME::contains);
+                                                                     )
+                                                                     .noneMatch(ENVIRONMENT_NAME::contains);
     private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
     private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
 
