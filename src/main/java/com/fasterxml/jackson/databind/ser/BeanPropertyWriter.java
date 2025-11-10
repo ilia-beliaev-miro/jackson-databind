@@ -28,9 +28,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
-import java.util.HashMap;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -58,20 +56,25 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     private static final boolean ERROR_ON_NO_JSON_PROPERTIES = Stream.of(
                                                                        "production",
                                                                        "staging",
-                                                                       "qa-svc"
+                                                                       "qa-monolith"
                                                                      )
                                                                      .noneMatch(ENVIRONMENT_NAME::contains);
     private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
     private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
+    private static final Class<? extends AnnotationIntrospector> KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS;
 
     static {
         Class<? extends Annotation> kotlinMetadata = null;
+        Class<? extends AnnotationIntrospector> kotlinNamesAnnotationIntrospector = null;
         try {
             kotlinMetadata = (Class<? extends Annotation>) Class.forName("kotlin.Metadata");
+            kotlinNamesAnnotationIntrospector = (Class<? extends AnnotationIntrospector>) Class.forName(
+                "com.fasterxml.jackson.module.kotlin.KotlinNamesAnnotationIntrospector");
         } catch (ClassNotFoundException | ClassCastException e) {
             // Kotlin not in classpath, ignore check
         }
         KOTLIN_METADATA_ANNOTATION_CLASS = kotlinMetadata;
+        KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS = kotlinNamesAnnotationIntrospector;
     }
     // miro-end BEX-1163
 
@@ -717,10 +720,19 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     public void serializeAsField(Object bean, JsonGenerator gen,
             SerializerProvider prov) throws Exception {
         // miro-start BEX-1163
-        // If a property from a Kotlin method, that is named is{Something} and has no JsonProperty annotation, or it is empty
+        // If a property from a Kotlin method named using KotlinNamesAnnotationIntrospector
+        // as is{Something} and has no JsonProperty annotation, or it is empty
         // - in non-production environment - throw an exception
         // - in production environment - log a WARN
-        if (_member != null
+        AnnotationIntrospector annotationIntrospector = prov.getConfig()
+                                                            .getAnnotationIntrospector();
+        Collection<AnnotationIntrospector> allIntrospectors = annotationIntrospector == null
+            ? Collections.emptyList()
+            : annotationIntrospector.allIntrospectors();
+        if (KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS != null
+            && allIntrospectors.stream()
+                               .anyMatch(KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS::isInstance)
+            && _member != null
             && _member.getName()
                       .startsWith("is")
             && _member instanceof AnnotatedMethod
