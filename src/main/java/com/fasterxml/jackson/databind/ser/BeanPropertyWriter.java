@@ -1,19 +1,16 @@
 package com.fasterxml.jackson.databind.ser;
 
-import java.io.IOException;
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Type;
-import java.util.HashMap;
-
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.SerializableString;
 import com.fasterxml.jackson.core.io.SerializedString;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.annotation.JacksonStdImpl;
-import com.fasterxml.jackson.databind.introspect.*;
+import com.fasterxml.jackson.databind.introspect.AnnotatedField;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMethod;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
 import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -23,6 +20,17 @@ import com.fasterxml.jackson.databind.ser.std.BeanSerializerBase;
 import com.fasterxml.jackson.databind.util.Annotations;
 import com.fasterxml.jackson.databind.util.ClassUtil;
 import com.fasterxml.jackson.databind.util.NameTransformer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Type;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /**
  * Base bean property handler class, which implements common parts of
@@ -41,6 +49,30 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
 {
     // As of 2.7
     private static final long serialVersionUID = 1L;
+
+    // miro-start BEX-1163
+    private static final Logger LOGGER = LoggerFactory.getLogger(BeanPropertyWriter.class);
+    private static final String ENVIRONMENT_NAME = System.getProperty("environment", "undefined");
+    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = Stream.of("production")
+                                                                     .noneMatch(ENVIRONMENT_NAME::contains);
+    private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
+    private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
+    private static final Class<? extends AnnotationIntrospector> KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS;
+
+    static {
+        Class<? extends Annotation> kotlinMetadata = null;
+        Class<? extends AnnotationIntrospector> kotlinNamesAnnotationIntrospector = null;
+        try {
+            kotlinMetadata = (Class<? extends Annotation>) Class.forName("kotlin.Metadata");
+            kotlinNamesAnnotationIntrospector = (Class<? extends AnnotationIntrospector>) Class.forName(
+                "com.fasterxml.jackson.module.kotlin.KotlinNamesAnnotationIntrospector");
+        } catch (ClassNotFoundException | ClassCastException e) {
+            // Kotlin not in classpath, ignore check
+        }
+        KOTLIN_METADATA_ANNOTATION_CLASS = kotlinMetadata;
+        KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS = kotlinNamesAnnotationIntrospector;
+    }
+    // miro-end BEX-1163
 
     /**
      * Marker object used to indicate "do not serialize if empty"
@@ -683,6 +715,48 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     @Override
     public void serializeAsField(Object bean, JsonGenerator gen,
             SerializerProvider prov) throws Exception {
+        // miro-start BEX-1163
+        // If a property from a Kotlin method named using KotlinNamesAnnotationIntrospector
+        // as is{Something} and has no JsonProperty annotation, or it is empty
+        // - in non-production environment - throw an exception
+        // - in production environment - log a WARN
+        AnnotationIntrospector annotationIntrospector = prov.getConfig()
+                                                            .getAnnotationIntrospector();
+        Collection<AnnotationIntrospector> allIntrospectors = annotationIntrospector == null
+            ? Collections.emptyList()
+            : annotationIntrospector.allIntrospectors();
+        if (KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS != null
+            && allIntrospectors.stream()
+                               .anyMatch(KOTLIN_NAME_ANNOTATION_INTROSPECTOR_CLASS::isInstance)
+            && _member != null
+            && _member.getName()
+                      .startsWith("is")
+            && _member instanceof AnnotatedMethod
+            && ((AnnotatedMethod) _member).getParameterCount() == 0
+            && !Objects.equals(_member.getName(), _name.getValue()) // this skips the FIELDS that start with `is`
+        ) {
+            JsonProperty jsonProperty = _accessorMethod.getAnnotation(JsonProperty.class);
+            if (jsonProperty == null
+                || jsonProperty.value()
+                               .isEmpty()) {
+                Class<?> beanClass = bean.getClass();
+                if (beanClass.isAnnotationPresent(KOTLIN_METADATA_ANNOTATION_CLASS)) {
+                    IllegalStateException exception = new IllegalStateException(String.format(
+                        "Serializing a property '%s' from Kotlin class %s using is-method '%s' without" +
+                            " explicit @JsonProperty annotation specifying the name. With migration to" +
+                            " jackson-kotlin-module 2.15 the resulting property name would change to %s. Add" +
+                            " an @JsonProperty annotation to the method specifying the name explicitly.",
+                        _name.getValue(), beanClass.getName(), _accessorMethod.getName(), _accessorMethod.getName()
+                    ));
+                    if (ERROR_ON_NO_JSON_PROPERTIES) {
+                        throw exception;
+                    } else if (WARNED_METHODS_CACHE.add(_accessorMethod.getName())) {
+                        LOGGER.warn("Kotlin is-method serialization issue", exception);
+                    }
+                }
+            }
+        }
+        // miro-end BEX-1163
         // inlined 'get()'
         final Object value = (_accessorMethod == null) ? _field.get(bean)
                 : _accessorMethod.invoke(bean, (Object[]) null);
