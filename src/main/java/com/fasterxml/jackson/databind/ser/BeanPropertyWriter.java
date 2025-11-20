@@ -53,11 +53,7 @@ public class BeanPropertyWriter extends PropertyWriter // which extends
     // miro-start BEX-1163
     private static final Logger LOGGER = LoggerFactory.getLogger(BeanPropertyWriter.class);
     private static final String ENVIRONMENT_NAME = System.getProperty("environment", "undefined");
-    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = Stream.of(
-                                                                       "production",
-                                                                       "staging",
-                                                                       "qa-monolith"
-                                                                     )
+    private static final boolean ERROR_ON_NO_JSON_PROPERTIES = Stream.of("production")
                                                                      .noneMatch(ENVIRONMENT_NAME::contains);
     private static final Set<String> WARNED_METHODS_CACHE = ConcurrentHashMap.newKeySet();
     private static final Class<? extends Annotation> KOTLIN_METADATA_ANNOTATION_CLASS;
